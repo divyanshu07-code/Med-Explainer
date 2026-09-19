@@ -1,5 +1,4 @@
-// Server-side API route. Runs on Vercel as a serverless function.
-// The API key lives only in the environment variable — it never reaches the browser.
+
 import { getSessionFromReq } from '../../lib/auth';
 import { checkRateLimit, getClientIp } from '../../lib/rateLimit';
 
