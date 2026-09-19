@@ -250,18 +250,7 @@ For medication decisions, users should verify the information with the official 
 * **Image Processing:** Gemini vision capabilities
 * **Rate Limiting:** Per-IP best-effort rate limiting
 
-## 📁 Important Project Files
 
-```text
-pages/
-└── api/
-    └── analyze.js       # Gemini API + analysis endpoint
-
-lib/
-└── rateLimit.js         # Per-IP rate limiting
-
-.env.local.example       # Environment variable template
-```
 
 ## ⚠️ Notes
 * The application provides informational explanations and is not medical advice.
