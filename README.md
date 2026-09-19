@@ -264,9 +264,5 @@ lib/
 ```
 
 ## ⚠️ Notes
-
-* Never commit `.env.local` or any file containing your real Gemini API key.
-* Keep API keys server-side.
-* The demo login credentials should only be shared with intended users.
 * The application provides informational explanations and is not medical advice.
 * Medication information should always be verified using the medicine label, doctor, or pharmacist.
