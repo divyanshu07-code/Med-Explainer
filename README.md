@@ -1,43 +1,272 @@
 # Medicine Explainer
 
-Upload a photo of a prescription/medicine label (or just type the name) and get a plain-language explanation: what it's for, how it's taken, common side effects, red flags to watch for, and interaction cautions — powered by Google's Gemini vision + reasoning (free tier).
+Upload a photo of a prescription/medicine label (or simply type the medicine name) and get a plain-language explanation of:
 
-## Why this architecture
+* What the medicine is used for
+* How it is taken, when information is available
+* Common side effects
+* Red-flag symptoms to watch for
+* Important interaction cautions
 
-The Gemini API key is used **server-side only**, inside `pages/api/analyze.js`, which runs as a Vercel serverless function. The browser never sees the key. This is the correct pattern for any real deployment — never put an API key in client-side JavaScript.
+Powered by Google's Gemini vision + reasoning.
 
-## Local setup
+> **Disclaimer:** Medicine Explainer is an informational tool, not a substitute for professional medical advice. Always verify medication information with the medicine label, doctor, or pharmacist.
+
+## 🌐 Access the Website
+
+The deployed application is protected by a simple login so that the Gemini API cannot be freely accessed by anyone who obtains the website link.
+
+### Login credentials
+
+```text
+Username: divyanshu
+Password: MedExplain2026!
+```
+
+Open the deployed website and enter the credentials above on the `/login` page.
+
+> **Important:** Do not share these credentials publicly if the deployed website is intended for private/demo access.
+
+## Why This Architecture
+
+The Gemini API key is used **server-side only**, inside:
+
+```text
+pages/api/analyze.js
+```
+
+This file runs as a Vercel serverless function.
+
+The browser never receives the Gemini API key. This is the correct architecture for a real deployment because API keys should never be exposed in client-side JavaScript.
+
+### Request flow
+
+```text
+User
+  ↓
+Medicine Explainer Website
+  ↓
+Login Authentication
+  ↓
+Upload Medicine Photo / Enter Medicine Name
+  ↓
+Next.js API Route
+  ↓
+Gemini API
+  ↓
+Plain-Language Medicine Explanation
+  ↓
+Result + Safety Disclaimer
+```
+
+## Local Setup
+
+Clone the repository and install the dependencies:
 
 ```bash
 npm install
+```
+
+Create your local environment file:
+
+```bash
 cp .env.local.example .env.local
-# edit .env.local and paste your real Gemini API key
+```
+
+Edit `.env.local` and add your Gemini API key and application credentials.
+
+Example:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+APP_USERNAME=divyanshu
+APP_PASSWORD=MedExplain2026!
+APP_SESSION_SECRET=your_long_random_session_secret
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-Open http://localhost:3000
+Open:
 
-## Deploy to Vercel
+```text
+http://localhost:3000
+```
 
-1. Push this folder to a GitHub repo (or run `vercel` from inside this folder with the Vercel CLI).
-2. In the Vercel dashboard: **Import Project** → select the repo.
-3. Before the first deploy (or in Project Settings → Environment Variables), add:
-   - `GEMINI_API_KEY` = your free key from https://aistudio.google.com/apikey
-   - `APP_USERNAME` = the username you want to log in with
-   - `APP_PASSWORD` = the password you want to log in with
-   - `APP_SESSION_SECRET` = a long random string (generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
-4. Deploy. Vercel auto-detects Next.js — no extra config needed.
+Then log in using your configured username and password.
 
-## What to say in your demo
+## 🚀 Deploy to Vercel
 
-1. Open the app, tap "Photo of label," take a photo of any real medicine box or prescription bottle.
-2. While it's "thinking," explain the architecture in one sentence: "The photo goes to a serverless function, which asks Gemini to read the label and explain it — the API key never touches the browser."
-3. Show the result: purpose, how to take it, side effects, red-flag symptoms, and the disclaimer.
-4. Mention the safety design choice: it's explicitly instructed never to invent a dosage that isn't visible on the label — it says "check the label" or "ask your pharmacist" instead of guessing.
+1. Push this folder to a GitHub repository, or run `vercel` from inside the project folder using the Vercel CLI.
+2. Open the Vercel dashboard.
+3. Select **Import Project** and choose the GitHub repository.
+4. Add the following environment variables before deployment:
 
-## Notes
+```text
+GEMINI_API_KEY
+APP_USERNAME
+APP_PASSWORD
+APP_SESSION_SECRET
+```
 
-- Model used: `gemini-2.0-flash` (edit the `GEMINI_MODEL` constant in `pages/api/analyze.js` if you want a different available Gemini model, e.g. `gemini-1.5-flash`).
-- This is informational only, not medical advice — the disclaimer is always shown with every result, and the system prompt is written to avoid guessing anything not visible on the label.
-- The app is gated behind a single login (`/login`) using the `APP_USERNAME` / `APP_PASSWORD` env vars, so the Gemini API can't be hit by random visitors if the link gets shared. This is a simple shared-password gate, not a full multi-user account system.
-- `pages/api/analyze.js` also applies a best-effort per-IP rate limit (10 requests / 15 min) on top of the login requirement — see `lib/rateLimit.js` for its limitations on serverless.
+Recommended values for the demo:
+
+```text
+APP_USERNAME = divyanshu
+APP_PASSWORD = MedExplain2026!
+```
+
+For `APP_SESSION_SECRET`, generate a long random value:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+5. Deploy the project.
+
+Vercel automatically detects the Next.js application, so no additional configuration is required.
+
+## 🧪 What to Say in Your Demo
+
+### 1. Demonstrate the login
+
+Open the website and log in using the provided demo credentials.
+
+### 2. Upload a medicine label
+
+Tap **"Photo of label"** and upload a photo of a medicine box, medicine label, or prescription.
+
+You can also enter the medicine name manually if supported by the interface.
+
+### 3. Explain the architecture
+
+While the application is processing the request, explain:
+
+> "The image is sent to a serverless API function, which sends the relevant information to Gemini for analysis. The Gemini API key stays on the server and is never exposed to the browser."
+
+### 4. Show the result
+
+Demonstrate the generated explanation, including:
+
+* Medicine purpose
+* Available usage information
+* Common side effects
+* Red-flag symptoms
+* Interaction cautions
+* Safety disclaimer
+
+### 5. Explain the safety design
+
+A key safety decision is that the application is instructed **not to invent a dosage or medication instruction that is not visible or reliably available**.
+
+Instead of guessing, the system should direct the user to:
+
+* Check the medicine label
+* Contact their doctor
+* Ask a pharmacist
+
+## 🔐 Security Design
+
+### API key protection
+
+The Gemini API key is stored as a Vercel environment variable:
+
+```text
+GEMINI_API_KEY
+```
+
+It is accessed only by the server-side API route.
+
+The key is **not included in frontend JavaScript**.
+
+### Login protection
+
+The application uses a simple shared-password gate:
+
+```text
+APP_USERNAME
+APP_PASSWORD
+APP_SESSION_SECRET
+```
+
+This prevents random visitors from directly using the application's Gemini-powered functionality.
+
+> This is a simple demo authentication system, not a full multi-user authentication platform.
+
+### Rate limiting
+
+`pages/api/analyze.js` also applies a best-effort per-IP rate limit.
+
+Current configuration:
+
+```text
+10 requests / 15 minutes
+```
+
+The rate limit provides an additional layer of protection but should not be considered a complete security solution for a large-scale production application.
+
+## 🤖 AI Model
+
+The application currently uses:
+
+```text
+gemini-2.0-flash
+```
+
+The model can be changed through the `GEMINI_MODEL` constant in:
+
+```text
+pages/api/analyze.js
+```
+
+Depending on API availability, another supported Gemini model can be configured.
+
+## 🛡️ Safety & Limitations
+
+Medicine Explainer is designed as an **information and education tool**.
+
+It should not:
+
+* Diagnose a medical condition
+* Replace a doctor or pharmacist
+* Invent medication dosages
+* Assume information that is not visible on a medicine label
+* Tell users to ignore professional medical advice
+
+Every result includes a safety disclaimer.
+
+For medication decisions, users should verify the information with the official medicine label and a qualified healthcare professional.
+
+## 🛠️ Tech Stack
+
+* **Frontend:** Next.js / React
+* **Backend:** Next.js API Routes
+* **AI:** Google Gemini
+* **Deployment:** Vercel
+* **Authentication:** Environment-variable-based shared login
+* **Image Processing:** Gemini vision capabilities
+* **Rate Limiting:** Per-IP best-effort rate limiting
+
+## 📁 Important Project Files
+
+```text
+pages/
+└── api/
+    └── analyze.js       # Gemini API + analysis endpoint
+
+lib/
+└── rateLimit.js         # Per-IP rate limiting
+
+.env.local.example       # Environment variable template
+```
+
+## ⚠️ Notes
+
+* Never commit `.env.local` or any file containing your real Gemini API key.
+* Keep API keys server-side.
+* The demo login credentials should only be shared with intended users.
+* The application provides informational explanations and is not medical advice.
+* Medication information should always be verified using the medicine label, doctor, or pharmacist.
