@@ -1,22 +1,19 @@
-
 import { getSessionFromReq } from '../../lib/auth';
 import { checkRateLimit, getClientIp } from '../../lib/rateLimit';
 
 export const config = {
-  api: {
-    bodyParser: { sizeLimit: '10mb' },
-  },
+  api: { bodyParser: { sizeLimit: '10mb' } },
 };
 
 const SYSTEM_PROMPT = `You are a careful pharmacist's assistant helping someone understand a medicine they have already been prescribed or purchased.
 
 Rules:
-- Only explain information that is visible on the label/photo, or well-established public information about the named drug (what it's generally used for, common side effects, standard precautions).
-- NEVER invent or guess a specific dosage, frequency, or instruction that is not clearly visible in the image or provided by the user. If dosage isn't visible, say so and recommend checking the label or asking the pharmacist.
-- If the user mentions allergies or other medicines, give general, well-known interaction/caution notes (e.g. "commonly interacts with X") but do not give a definitive personal medical judgment — always direct them to confirm with a pharmacist or doctor for anything specific to their situation.
-- Keep language plain, warm, and easy to understand for a non-medical reader. Avoid jargon; briefly explain any medical term you must use.
-- If the image is unclear, blurry, or you cannot identify the medicine with reasonable confidence, say so honestly rather than guessing.
-- Respond with ONLY valid JSON, no markdown code fences, no preamble, matching exactly this schema:
+- Only explain information visible on the label/photo, or well-established public information about the named drug.
+- NEVER invent or guess a specific dosage not clearly visible. Say "check the label" or "ask your pharmacist" instead.
+- For allergies/other medicines: give general well-known caution notes, never a definitive personal judgment. Always direct to pharmacist or doctor.
+- Keep language plain, warm, easy for a non-medical reader. Briefly explain any medical term you use.
+- If image is unclear or medicine unidentifiable, say so honestly rather than guessing.
+- Respond with ONLY valid JSON matching exactly this schema (no markdown fences, no preamble):
 {
   "medicineName": string,
   "genericName": string | null,
@@ -29,21 +26,62 @@ Rules:
   "disclaimer": string
 }`;
 
-// Uses Google's Gemini API (free tier available via a Google AI Studio key).
-const GEMINI_MODEL = 'gemini-3.6-flash';
+// Model fallback chain — tries each model in order on 503/429 (overload / rate limit)
+const MODELS = [
+  'gemini-3.6-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-8b',
+];
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function callGemini(apiKey, model, payload, retries = 2) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    // On overload/rate-limit, wait and retry
+    if ((res.status === 503 || res.status === 429) && attempt < retries) {
+      await sleep(1500 * (attempt + 1));
+      continue;
+    }
+    return res;
+  }
+}
+
+async function callWithFallback(apiKey, payload) {
+  for (const model of MODELS) {
+    try {
+      const res = await callGemini(apiKey, model, payload);
+      if (!res) continue;
+
+      // Fall through to next model only on capacity errors
+      if (res.status === 503 || res.status === 429) continue;
+
+      // For auth errors or not-found, fail immediately (don't try other models)
+      return { res, model };
+    } catch (err) {
+      // Network error — try next model
+      continue;
+    }
+  }
+  // All models exhausted
+  return { res: null, model: null };
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Require a logged-in session, so a leaked/shared link can't be hit anonymously.
   const session = getSessionFromReq(req);
   if (!session) {
     return res.status(401).json({ error: 'Not authenticated. Please log in.' });
   }
 
-  // Best-effort per-IP rate limit on top of auth (see lib/rateLimit.js for caveats).
   const ip = getClientIp(req);
   const { allowed, retryAfterMs } = checkRateLimit(ip);
   if (!allowed) {
@@ -53,76 +91,65 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'Server is missing GEMINI_API_KEY. Set it in your Vercel project environment variables.' });
+    return res.status(500).json({ error: 'GEMINI_API_KEY is not set on the server.' });
   }
 
   const { mode, imageBase64, mediaType, medicineName, context } = req.body || {};
-
   let userParts = [];
 
   if (mode === 'image') {
-    if (!imageBase64 || !mediaType) {
-      return res.status(400).json({ error: 'Missing image data.' });
-    }
+    if (!imageBase64 || !mediaType) return res.status(400).json({ error: 'Missing image data.' });
     userParts.push({
-      text:
-        'This is a photo of a medicine package, bottle, or prescription label. Identify and explain it.' +
-        (context ? `\n\nAdditional context from the user (allergies / other medicines / questions): ${context}` : ''),
+      text: 'This is a photo of a medicine package, bottle, or prescription label. Identify and explain it.' +
+        (context ? `\n\nUser context (allergies / other medicines / questions): ${context}` : ''),
     });
-    userParts.push({
-      inline_data: { mime_type: mediaType, data: imageBase64 },
-    });
+    userParts.push({ inline_data: { mime_type: mediaType, data: imageBase64 } });
   } else if (mode === 'text') {
-    if (!medicineName || !medicineName.trim()) {
-      return res.status(400).json({ error: 'Missing medicine name.' });
-    }
+    if (!medicineName?.trim()) return res.status(400).json({ error: 'Missing medicine name.' });
     userParts.push({
-      text:
-        `Explain this medicine: ${medicineName.trim()}` +
-        (context ? `\n\nAdditional context from the user (allergies / other medicines / questions): ${context}` : ''),
+      text: `Explain this medicine: ${medicineName.trim()}` +
+        (context ? `\n\nUser context (allergies / other medicines / questions): ${context}` : ''),
     });
   } else {
-    return res.status(400).json({ error: 'Invalid mode. Use "image" or "text".' });
+    return res.status(400).json({ error: 'Invalid mode.' });
   }
 
+  const payload = {
+    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts: userParts }],
+    generationConfig: { maxOutputTokens: 1000, responseMimeType: 'application/json' },
+  };
+
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: [{ role: 'user', parts: userParts }],
-          generationConfig: {
-            maxOutputTokens: 900,
-            responseMimeType: 'application/json',
-          },
-        }),
-      }
-    );
+    const { res: geminiRes, model } = await callWithFallback(apiKey, payload);
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      return res.status(response.status).json({ error: `Gemini API error: ${errText.slice(0, 300)}` });
+    if (!geminiRes) {
+      return res.status(503).json({
+        error: 'All AI models are currently busy. Please wait 30 seconds and try again.',
+      });
     }
 
-    const data = await response.json();
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text().catch(() => '');
+      return res.status(geminiRes.status).json({
+        error: `AI error (${geminiRes.status}): ${errText.slice(0, 300)}`,
+      });
+    }
+
+    const data = await geminiRes.json();
     const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-    if (!text) {
-      return res.status(500).json({ error: 'No text content returned from the model.' });
-    }
+    if (!text) return res.status(500).json({ error: 'No content returned from AI.' });
 
     let parsed;
     try {
       const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '');
       parsed = JSON.parse(cleaned);
-    } catch (e) {
-      return res.status(500).json({ error: 'Could not parse model response as JSON.', raw: text });
+    } catch {
+      return res.status(500).json({ error: 'Could not parse AI response as JSON.', raw: text.slice(0, 200) });
     }
 
-    return res.status(200).json({ result: parsed });
+    return res.status(200).json({ result: parsed, modelUsed: model });
   } catch (err) {
-    return res.status(500).json({ error: 'Request to Gemini API failed: ' + err.message });
+    return res.status(500).json({ error: 'Request to AI failed: ' + err.message });
   }
 }

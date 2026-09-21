@@ -23,14 +23,8 @@ export default function Login() {
     e.preventDefault();
     setError('');
 
-    if (!username.trim()) {
-      setError('Please enter a username.');
-      return;
-    }
-    if (!password) {
-      setError('Please enter a password.');
-      return;
-    }
+    if (!username.trim()) { setError('Please enter a username.'); return; }
+    if (!password)         { setError('Please enter a password.'); return; }
 
     setSubmitting(true);
     try {
@@ -40,15 +34,12 @@ export default function Login() {
         body: JSON.stringify({ username: username.trim(), password, remember }),
       });
 
-      let data;
       const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        throw new Error('Server error. Please restart the dev server and try again.');
+      if (!contentType.includes('application/json')) {
+        throw new Error('Server error — please restart the dev server.');
       }
 
+      const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Login failed.');
       router.push('/');
     } catch (err) {
@@ -62,23 +53,20 @@ export default function Login() {
     <>
       <Head>
         <title>Sign In — MedExplainer</title>
-        <meta name="description" content="Sign in to MedExplainer — get plain-language medicine info powered by AI." />
+        <meta name="description" content="Sign in to get plain-language medicine info powered by Gemini AI." />
       </Head>
 
       <div className="login-root">
-        {/* Nav */}
         <nav className="login-nav">
           <div className="login-brand">
             <div className="brand-mark">💊</div>
-            <span>MedExplainer</span>
+            MedExplainer
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>Powered by Gemini AI</div>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Powered by Gemini AI</span>
         </nav>
 
-        {/* Main */}
         <main className="login-main">
           <div className="login-box">
-            {/* Eyebrow */}
             <div className="login-eyebrow">
               <div className="login-dot" />
               <span>Secure Access</span>
@@ -86,13 +74,12 @@ export default function Login() {
 
             <h1>Welcome back</h1>
             <p className="login-subtitle">
-              Enter any name and password to access your<br />personal medicine explainer.
+              Your AI-powered medicine explainer.<br />
+              Enter any name and password to continue.
             </p>
 
-            {/* Card */}
             <div className="login-card">
-              <form onSubmit={handleSubmit}>
-                {/* Username */}
+              <form onSubmit={handleSubmit} id="login-form">
                 <label className="lfield-label" htmlFor="username">Username</label>
                 <div className="lfield">
                   <span className="lfield-icon">👤</span>
@@ -107,7 +94,6 @@ export default function Login() {
                   />
                 </div>
 
-                {/* Password */}
                 <label className="lfield-label" htmlFor="password">Password</label>
                 <div className="lfield">
                   <span className="lfield-icon">🔑</span>
@@ -129,7 +115,6 @@ export default function Login() {
                   </button>
                 </div>
 
-                {/* Remember & error */}
                 <div className="lrow">
                   <label className="checkbox-row">
                     <input
@@ -143,33 +128,16 @@ export default function Login() {
 
                 {error && (
                   <div className="login-error">
-                    <span>⚠</span>
-                    {error}
+                    <span>⚠</span> {error}
                   </div>
                 )}
 
-                <button type="submit" className="btn-login" disabled={submitting} id="login-submit-btn">
+                <button type="submit" id="login-submit" className="btn-login" disabled={submitting}>
                   {submitting ? '⏳ Signing in…' : '→ Sign In'}
                 </button>
               </form>
 
-              <p className="login-hint">Any username + any password works — just fill both fields</p>
-            </div>
-
-            {/* Feature pills */}
-            <div className="login-features">
-              <div className="login-feat">
-                <span className="login-feat-icon">🔒</span>
-                API key never exposed to browser
-              </div>
-              <div className="login-feat">
-                <span className="login-feat-icon">⚡</span>
-                Gemini AI — instant analysis
-              </div>
-              <div className="login-feat">
-                <span className="login-feat-icon">📷</span>
-                Photo or text input
-              </div>
+              <p className="login-hint">Any username + any password — just fill both fields</p>
             </div>
           </div>
         </main>
