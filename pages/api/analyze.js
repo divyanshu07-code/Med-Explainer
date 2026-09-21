@@ -26,50 +26,66 @@ Rules:
   "disclaimer": string
 }`;
 
-// Model fallback chain — tries each model in order on 503/429 (overload / rate limit)
+// ── Verified-working models on v1beta (as of 2026) ──
+// Only 503/429 triggers fallback. 404 = model gone, skip immediately.
 const MODELS = [
-  'gemini-3.6-flash',
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-8b',
+  'gemini-3.6-flash',      // Primary — recommended by Google AI
+  'gemini-2.5-flash',      // Stable fallback
+  'gemini-2.5-flash-lite', // Lightweight last resort
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function callGemini(apiKey, model, payload, retries = 2) {
+// Call one model, retry up to `maxRetries` times on 503/429 with exponential backoff
+async function callModel(apiKey, model, payload, maxRetries = 3) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    // On overload/rate-limit, wait and retry
-    if ((res.status === 503 || res.status === 429) && attempt < retries) {
-      await sleep(1500 * (attempt + 1));
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (networkErr) {
+      // Network failure — wait and retry
+      if (attempt < maxRetries) { await sleep(1000 * (attempt + 1)); continue; }
+      throw networkErr;
+    }
+
+    // On overload / rate-limit → wait and retry same model
+    if ((res.status === 503 || res.status === 429) && attempt < maxRetries) {
+      await sleep(2000 * (attempt + 1)); // 2 s, 4 s, 6 s
       continue;
     }
-    return res;
+
+    return res; // Return whatever we got (ok or other error)
   }
 }
 
+// Try each model in order; skip to next only on 503/429/404 after exhausting retries
 async function callWithFallback(apiKey, payload) {
   for (const model of MODELS) {
     try {
-      const res = await callGemini(apiKey, model, payload);
+      const res = await callModel(apiKey, model, payload);
       if (!res) continue;
 
-      // Fall through to next model only on capacity errors
-      if (res.status === 503 || res.status === 429) continue;
+      // Model doesn't exist → try next one silently
+      if (res.status === 404) { console.warn(`[analyze] ${model} not found, trying next…`); continue; }
 
-      // For auth errors or not-found, fail immediately (don't try other models)
+      // Still overloaded after all retries → try next model
+      if (res.status === 503 || res.status === 429) { console.warn(`[analyze] ${model} overloaded, trying next…`); continue; }
+
+      // Any other status (200 = success, 400/401/500 = real error) → return immediately
       return { res, model };
     } catch (err) {
-      // Network error — try next model
+      console.warn(`[analyze] ${model} network error:`, err.message);
       continue;
     }
   }
-  // All models exhausted
-  return { res: null, model: null };
+
+  return { res: null, model: null }; // All models exhausted
 }
 
 export default async function handler(req, res) {
