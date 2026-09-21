@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { getSessionFromReq } from '../lib/auth';
 
@@ -23,8 +23,33 @@ export default function Home({ username }) {
   const [result, setResult] = useState(null);
   const [modelUsed, setModelUsed] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   const fileInputRef = useRef(null);
   const resultRef = useRef(null);
+
+  // Load history on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('medHistory');
+      if (saved) setHistory(JSON.parse(saved));
+    } catch (e) {
+      console.error('Failed to load history', e);
+    }
+  }, []);
+
+  // Save history
+  const saveToHistory = (newResult) => {
+    const newHistory = [newResult, ...history.filter(h => h.medicineName !== newResult.medicineName)].slice(0, 5);
+    setHistory(newHistory);
+    try {
+      localStorage.setItem('medHistory', JSON.stringify(newHistory));
+    } catch (e) {
+      console.error('Failed to save history', e);
+    }
+  };
 
   function handleFile(file) {
     if (!file) return;
@@ -76,8 +101,11 @@ export default function Home({ username }) {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Something went wrong.');
+      
       setResult(data.result);
       setModelUsed(data.modelUsed || null);
+      saveToHistory(data.result);
+      
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
     } catch (err) {
       setError(err.message);
@@ -85,6 +113,21 @@ export default function Home({ username }) {
       setLoading(false);
       setLoadingStep('');
     }
+  }
+
+  function loadHistoryItem(item) {
+    setResult(item);
+    setShowHistory(false);
+    setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  }
+
+  function handleShare() {
+    if (!result) return;
+    const text = `Medicine: ${result.medicineName}\nPurpose: ${result.purpose}\nHow to take: ${result.howToTake}\n\nPowered by MedExplainer AI`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   function reset() {
@@ -115,11 +158,36 @@ export default function Home({ username }) {
             <div className="brand-mark">💊</div>
             MedExplainer
           </div>
-          <button type="button" className="btn-logout" id="logout-btn" onClick={handleLogout}>
-            {username && <span style={{ opacity: .6, marginRight: 6 }}>👋 {username}</span>}
-            Sign out
-          </button>
+          <div className="topbar-actions">
+            {history.length > 0 && (
+              <button type="button" className="btn-ghost-small" onClick={() => setShowHistory(!showHistory)}>
+                🕒 History
+              </button>
+            )}
+            <button type="button" className="btn-logout" id="logout-btn" onClick={handleLogout}>
+              {username && <span style={{ opacity: .6, marginRight: 6 }}>👋 {username}</span>}
+              Sign out
+            </button>
+          </div>
         </div>
+
+        {/* ── History Dropdown ── */}
+        {showHistory && history.length > 0 && (
+          <div className="history-panel">
+            <h3>Recent Searches</h3>
+            <div className="history-list">
+              {history.map((item, idx) => (
+                <button key={idx} className="history-item" onClick={() => loadHistoryItem(item)}>
+                  <span className="history-icon">💊</span>
+                  <div className="history-text">
+                    <strong>{item.medicineName}</strong>
+                    <span>{item.purpose.substring(0, 40)}...</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Hero ── */}
         <header className="hero">
@@ -171,9 +239,15 @@ export default function Home({ username }) {
               ) : (
                 <div className="upload-empty">
                   <span className="upload-icon">🏷️</span>
-                  <p>Drag &amp; drop or tap to upload</p>
-                  <p>Medicine package, bottle, or prescription label</p>
+                  <p className="desktop-text">Drag &amp; drop or click to upload</p>
+                  <p className="mobile-text">Tap to take a photo or upload</p>
+                  <p className="upload-subtitle">Medicine package, bottle, or prescription label</p>
                   <p className="upload-tip">💡 Photograph the printed label — pill shape alone isn't reliable</p>
+                  
+                  {/* Mobile Camera Button Hint */}
+                  <div className="mobile-camera-btn">
+                     📷 Take Photo
+                  </div>
                 </div>
               )}
               <input
@@ -213,12 +287,28 @@ export default function Home({ username }) {
             </button>
           </div>
 
-          {/* Animated loading feedback */}
+          {/* Animated loading feedback & Skeleton */}
           {loading && (
             <div className="loading-state">
               <div className="spinner" />
               <p className="loading-text">{loadingStep}</p>
               <p className="loading-sub">Trying all available AI models automatically…</p>
+              
+              <div className="skeleton-container mt-4">
+                 <div className="skeleton-header"></div>
+                 <div className="skeleton-grid">
+                    <div className="skeleton-card">
+                       <div className="skeleton-line w-3/4"></div>
+                       <div className="skeleton-line"></div>
+                       <div className="skeleton-line w-5/6"></div>
+                    </div>
+                    <div className="skeleton-card">
+                       <div className="skeleton-line w-1/2"></div>
+                       <div className="skeleton-line"></div>
+                       <div className="skeleton-line w-4/5"></div>
+                    </div>
+                 </div>
+              </div>
             </div>
           )}
 
@@ -226,7 +316,7 @@ export default function Home({ username }) {
         </form>
 
         {/* ── Results ── */}
-        {result && (
+        {result && !loading && (
           <div className="results" id="results-section" ref={resultRef}>
             {/* Header */}
             <div className="result-header">
@@ -235,9 +325,14 @@ export default function Home({ username }) {
                 {result.genericName && <p className="generic">Generic: {result.genericName}</p>}
                 {modelUsed && <span className="model-badge">via {modelUsed}</span>}
               </div>
-              <span className={`confidence ${result.confidence}`}>
-                {confIcon[result.confidence]} {result.confidence} confidence
-              </span>
+              <div className="result-header-actions">
+                <span className={`confidence ${result.confidence}`}>
+                  {confIcon[result.confidence]} {result.confidence} confidence
+                </span>
+                <button className="btn-share" onClick={handleShare}>
+                  {copied ? '✓ Copied' : '📤 Share'}
+                </button>
+              </div>
             </div>
 
             {/* Purpose + How to take */}
